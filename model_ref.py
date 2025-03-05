@@ -48,9 +48,9 @@ print("Préparation des données pour l'entraînement...")
 
 
 # Split the validation and train set
-#X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
-# Suppression des colonnes inutiles
+# X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
+# Suppression des colonnes inutiles
 # X_train = X_train.drop(['ID', 'ANNEE_ASSURANCE'], axis=1)
 X_train = X.drop(['ID', 'ANNEE_ASSURANCE'], axis=1)
 y_train = y
@@ -78,7 +78,7 @@ scaler = StandardScaler()
 X_train_enc = scaler.fit_transform(X_train_enc)
 
 # Appliquer l'ACP avec conservation de 95% de la variance
-pca = PCA(n_components=0.85)  # Conserver 95% de la variance
+pca = PCA(n_components=0.4)  # Conserver 95% de la variance
 X_train_enc = pca.fit_transform(X_train_enc)
 
 
