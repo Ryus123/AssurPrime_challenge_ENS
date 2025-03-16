@@ -5,12 +5,11 @@ import pandas as pd
 import numpy as np
 from category_encoders import CountEncoder, OrdinalEncoder
 from sklearn.metrics import mean_squared_error
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 
-from sklearn.linear_model import PoissonRegressor, TweedieRegressor
-from sklearn.decomposition import PCA
+from sklearn.linear_model import PoissonRegressor
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import RandomizedSearchCV
+
+import rfflearn.cpu as rfflearn
 
 from sklearn.model_selection import train_test_split
 
@@ -80,7 +79,7 @@ print("Traitement des valeurs manquantes terminé.")
 print("Préparation des données pour l'entraînement...")
 
 # Split the validation and train set
-# X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=.5, random_state=42)
+# X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=.2, random_state=42)
 # X_train = X_train.drop(['ID', 'ANNEE_ASSURANCE'], axis=1)
 
 X_train = X
@@ -101,15 +100,8 @@ print('Applique ACP')
 scaler = StandardScaler()
 X_train_enc = scaler.fit_transform(X_train_enc)
 
-# Appliquer l'ACP avec conservation de 95% de la variance
-pca = PCA(n_components=0.75)  # Conserver 95% de la variance
-X_train_enc = pca.fit_transform(X_train_enc)
-
-# print('Fusionner ACP et AFCM')
-# X_train_enc = np.concatenate((X_train_num, X_train_enc[fill_cols]), axis=1)
 
 print("Préparation terminée.")
-
 
 #############################################################
 #### Entraîner les modèles
@@ -126,19 +118,17 @@ y_train_pred_freq = glm_freq.predict(X_train_enc)
 
 # Modèle pour prédire 'CM' avec une loi de Tweedie (power=1.5)
 # Filtrer les données pour éviter les valeurs invalides
-mask = y_train['CM'] > 0  # Garder uniquement les valeurs strictement positives
 
 
 # Entraîner le GLM Tweedie uniquement sur ces données
-glm_cm = TweedieRegressor(power=1.95, alpha=5, max_iter=1000)
-glm_cm.fit(X_train_enc[mask], y_train['CM'][mask])
+glm_cm = rfflearn.RFFRegressor(dim_kernel=6000, std_kernel=1.)
+glm_cm.fit(X_train_enc, y_train['CM'])
 
 
 print("Modèle GLM Tweedie pour 'CM' entraîné avec succès.")
 
 # Prédire 'CM' (remettre les valeurs à 0 pour les cas exclus)
 y_train_pred_cm = glm_cm.predict(X_train_enc)
-y_train_pred_cm[~mask] = 0  # Remettre 0 pour les valeurs initialement nulles
 
 # Calculer la prédiction combinée pour 'CHARGE'
 y_train_pred = y_train_pred_freq * y_train_pred_cm * y_train['ANNEE_ASSURANCE']
@@ -163,7 +153,6 @@ print(f"RMSE - CM sur l'ensemble de validation : {rmse_cm/y_train['CM'].mean():.
 # print("Validation des modèles...")
 # X_val_enc = encoder.transform(X_val.drop(['ID', 'ANNEE_ASSURANCE'], axis=1))
 # X_val_enc = scaler.transform(X_val_enc)
-# X_val_enc = pca.transform(X_val_enc)
 
 # print("Prédictions sur l'ensemble de validation...")
 # # Prédire 'FREQ' et 'CM' sur les données de validation
@@ -193,9 +182,9 @@ print(f"RMSE - CM sur l'ensemble de validation : {rmse_cm/y_train['CM'].mean():.
 
 
 
-#############################################################""
-#### Test
-#############################################################""
+# ############################################################""
+# ### Test
+# ############################################################""
 
 
 # Traitement des données de test
@@ -235,7 +224,6 @@ X_test[fill_cols] = X_test[fill_cols].fillna(-999)
 
 X_test_model = encoder.transform(X_test.drop(['ID', 'ANNEE_ASSURANCE'], axis=1))
 X_test_model = scaler.transform(X_test_model)
-X_test_model = pca.transform(X_test_model)
 
 print("Prédictions sur l'ensemble de validation...")
 # Prédire 'FREQ' et 'CM' sur les données de validation
