@@ -31,9 +31,6 @@ y = y.drop(index=indices_a_supprimer)
 X.reset_index(drop=True, inplace=True)
 y.reset_index(drop=True, inplace=True)
 
-
-print(X.shape)  # (devrait afficher (N, nb_features))
-print(y.shape)
 #############################################################
 #### Traitement des données
 #############################################################
@@ -64,6 +61,7 @@ X[NBJRR] = X[NBJRR].apply(pd.to_numeric, errors='coerce')
 
 numeric_columns = X.drop(['ID', 'ANNEE_ASSURANCE'], axis=1).select_dtypes(include=['number']).columns
 X[numeric_columns] = X[numeric_columns].fillna(X[numeric_columns].mean())
+
 # Identifier les colonnes non numériques
 fill_cols = [item for item in X.columns if item not in numeric_columns and item not in ['ID', 'ANNEE_ASSURANCE']]
 

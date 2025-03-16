@@ -28,13 +28,17 @@ indices_a_supprimer = X.index[X.isna().sum(axis=1) > seuil].tolist()
 # Suppression des lignes avec plus de 50% de NaN
 X = X.drop(index=indices_a_supprimer)
 y = y.drop(index=indices_a_supprimer)
+print(y.shape)
+indices_a_supprimer2 = X[X["ANNEE_ASSURANCE"] < 0.01].index.tolist()
+X = X.drop(index=indices_a_supprimer2)
+y = y.drop(index=indices_a_supprimer2)
+print(y.shape)
+
+
 # Réinitialiser les index
 X.reset_index(drop=True, inplace=True)
 y.reset_index(drop=True, inplace=True)
 
-
-print(X.shape)  # (devrait afficher (N, nb_features))
-print(y.shape)
 #############################################################
 #### Traitement des données
 #############################################################
@@ -80,21 +84,23 @@ print("Traitement des valeurs manquantes terminé.")
 print("Préparation des données pour l'entraînement...")
 
 # Split the validation and train set
-# X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=.5, random_state=42)
-# X_train = X_train.drop(['ID', 'ANNEE_ASSURANCE'], axis=1)
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=.2, random_state=42)
+X_train = X_train.drop(['ID'], axis=1)
 
-X_train = X
-X_train = X_train.drop(['ID', 'ANNEE_ASSURANCE'], axis=1)
-y_train = y
+# X_train = X
+# X_train = X_train.drop(['ID', 'ANNEE_ASSURANCE'], axis=1)
+# y_train = y
 
 #############################################################
 #### Reduction des données
 #############################################################
 
 # Encodage des variables catégoriques avec CountEncoder
-encoder = OrdinalEncoder(cols=fill_cols)
-encoder.fit(X_train)
-X_train_enc = encoder.transform(X_train)
+# encoder = OrdinalEncoder(cols=fill_cols)
+# encoder.fit(X_train)
+# X_train_enc = encoder.transform(X_train)
+X_train_enc = X_train[numeric_columns]
+
 
 print('Applique ACP')
 #Standardiser les données
@@ -102,11 +108,8 @@ scaler = StandardScaler()
 X_train_enc = scaler.fit_transform(X_train_enc)
 
 # Appliquer l'ACP avec conservation de 95% de la variance
-pca = PCA(n_components=0.75)  # Conserver 95% de la variance
+pca = PCA(n_components=0.4)  # Conserver 95% de la variance
 X_train_enc = pca.fit_transform(X_train_enc)
-
-# print('Fusionner ACP et AFCM')
-# X_train_enc = np.concatenate((X_train_num, X_train_enc[fill_cols]), axis=1)
 
 print("Préparation terminée.")
 
@@ -161,7 +164,11 @@ print(f"RMSE - CM sur l'ensemble de validation : {rmse_cm/y_train['CM'].mean():.
 #############################################################
 
 # print("Validation des modèles...")
-# X_val_enc = encoder.transform(X_val.drop(['ID', 'ANNEE_ASSURANCE'], axis=1))
+# # X_val_enc = encoder.transform(X_val.drop(['ID'], axis=1))
+
+# X_val_enc = X_val.drop(['ID'], axis=1)
+# X_val_enc = X_val_enc[numeric_columns]
+
 # X_val_enc = scaler.transform(X_val_enc)
 # X_val_enc = pca.transform(X_val_enc)
 
@@ -233,7 +240,10 @@ X_test[fill_cols] = X_test[fill_cols].fillna(-999)
 
 # Suppression des colonnes inutiles
 
-X_test_model = encoder.transform(X_test.drop(['ID', 'ANNEE_ASSURANCE'], axis=1))
+# X_test_model = encoder.transform(X_test.drop(['ID'], axis=1))
+
+X_test_model = X_test.drop(['ID'], axis=1)
+X_test_model = X_test_model[numeric_columns]
 X_test_model = scaler.transform(X_test_model)
 X_test_model = pca.transform(X_test_model)
 
