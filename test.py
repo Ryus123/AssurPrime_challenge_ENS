@@ -4,3 +4,4 @@ import pandas as pd
 X = pd.read_csv("data/train_output.csv" )
 
 print(X.shape)
+print(X[X["ANNEE_ASSURANCE"] > 0.5].shape)

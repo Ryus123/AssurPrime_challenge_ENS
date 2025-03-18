@@ -3,17 +3,17 @@
 #############################################################
 import pandas as pd
 import numpy as np
-from category_encoders import CountEncoder, OrdinalEncoder
-from sklearn.metrics import mean_squared_error
 
-from sklearn.linear_model import PoissonRegressor
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-import rfflearn.cpu as rfflearn
-
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
+from xgboost import XGBRegressor
 
 import time
+
 
 # Charger les données
 print("Chargement des données...")
@@ -79,11 +79,11 @@ print("Traitement des valeurs manquantes terminé.")
 print("Préparation des données pour l'entraînement...")
 
 # Split the validation and train set
-# X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=.9, random_state=42)
+# X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=.2, random_state=42)
 # X_train = X_train.drop(['ID'], axis=1)
 
 X_train = X
-X_train = X_train.drop(['ID', 'ANNEE_ASSURANCE'], axis=1)
+X_train = X_train.drop(['ID'], axis=1)
 y_train = y
 
 #############################################################
@@ -92,36 +92,65 @@ y_train = y
 
 X_train_enc = X_train[numeric_columns]
 
+print('Applique ACP')
 #Standardiser les données
 scaler = StandardScaler()
 X_train_enc = scaler.fit_transform(X_train_enc)
 
+# Appliquer l'ACP avec conservation de 95% de la variance
+pca = PCA(n_components=0.37)  # Conserver 95% de la variance
+X_train_enc = pca.fit_transform(X_train_enc)
 
 print("Préparation terminée.")
 
-#############################################################
-#### Entraîner les modèles
-#############################################################
-print("Entraînement des modèles")
-t_start = time.time()
 
-# Modèle pour prédire 'FREQ' avec une loi de Poisson
-glm_freq = PoissonRegressor(alpha=.15, solver='newton-cholesky' )  # Régularisation faible
-glm_freq.fit(X_train_enc, y_train['FREQ'])
-print("Modèle GLM Poisson pour 'FREQ' entraîné avec succès.")
+#############################################################
+#### Entraînement
+#############################################################
+print("Entraînement des modèles XGBoost")
+t_start = time.time()
+# Modèle XGBoost pour prédire 'FREQ' (loi de Poisson)
+xgb_freq = XGBRegressor(
+    objective='count:poisson',
+    subsample=0.6,
+    reg_lambda=0.1,
+    reg_alpha=10.0,
+    n_estimators=100,
+    max_depth=3,
+    learning_rate=0.1388888888888889,
+    colsample_bytree=0.8
+)
+
+xgb_freq.fit(X_train_enc, y_train['FREQ'])
+print("Modèle XGBoost Poisson pour 'FREQ' entraîné avec succès.")
 
 # Prédire 'FREQ' sur l'ensemble d'entraînement
-y_train_pred_freq = glm_freq.predict(X_train_enc)
+y_train_pred_freq = xgb_freq.predict(X_train_enc)
 
-# Modèle pour prédire 'CM' avec une regression RFF
-glm_cm = rfflearn.RFFRegressor(dim_kernel=6000, std_kernel=1.)
-glm_cm.fit(X_train_enc, y_train['CM'])
 
-print("Modèle RFF pour 'CM' entraîné avec succès.")
+# Filtrer les données pour éviter les valeurs invalides (CM doit être > 0)
+mask = y_train['CM'] > 0  # Garder uniquement les valeurs strictement positives
+
+# Modèle XGBoost pour prédire 'CM' (loi de Tweedie)
+xgb_cm = XGBRegressor(
+    objective='reg:tweedie',
+    tweedie_variance_power=1.7375,
+    subsample=0.6,
+    reg_lambda=1.0,
+    reg_alpha=0.1,
+    n_estimators=100,
+    max_depth=3,
+    learning_rate=0.07444444444444444,
+    colsample_bytree=1.0
+)
+
+# Entraîner uniquement sur les valeurs positives
+xgb_cm.fit(X_train_enc[mask], y_train['CM'][mask])
+print("Modèle XGBoost Tweedie pour 'CM' entraîné avec succès.")
 model_building_time = time.time() - t_start
-
 # Prédire 'CM' (remettre les valeurs à 0 pour les cas exclus)
-y_train_pred_cm = glm_cm.predict(X_train_enc)
+y_train_pred_cm = xgb_cm.predict(X_train_enc)
+y_train_pred_cm[~mask] = 0  # Remettre 0 pour les valeurs initialement nulles
 
 # Calculer la prédiction combinée pour 'CHARGE'
 y_train_pred = y_train_pred_freq * y_train_pred_cm * y_train['ANNEE_ASSURANCE']
@@ -136,9 +165,7 @@ print(f"RMSE sur l'ensemble de validation : {rmse:.2f}")
 print(f"RMSE - FREQ sur l'ensemble de validation : {rmse_freq/y_train['FREQ'].std():.4f}")
 print(f"RMSE - CM sur l'ensemble de validation : {rmse_cm/y_train['CM'].std():.4f}")
 
-
-print(f'Model computation time = {model_building_time/60:.2f}min')
-
+print(f'Model computation time = {model_building_time:.2f}s')
 #############################################################
 #### Validation
 #############################################################
@@ -150,11 +177,12 @@ print(f'Model computation time = {model_building_time/60:.2f}min')
 # X_val_enc = X_val_enc[numeric_columns]
 
 # X_val_enc = scaler.transform(X_val_enc)
+# X_val_enc = pca.transform(X_val_enc)
 
 # print("Prédictions sur l'ensemble de validation...")
 # # Prédire 'FREQ' et 'CM' sur les données de validation
-# y_val_pred_freq = glm_freq.predict(X_val_enc)
-# y_val_pred_cm = glm_cm.predict(X_val_enc)
+# y_val_pred_freq = xgb_freq.predict(X_val_enc)
+# y_val_pred_cm = xgb_cm.predict(X_val_enc)
 
 # # Combiner les prédictions
 # y_val_pred = pd.concat([
@@ -178,10 +206,9 @@ print(f'Model computation time = {model_building_time/60:.2f}min')
 # print(f"RMSE - CM sur l'ensemble de validation : {rmse_val_cm/y_val['CM'].std():.4f}")
 
 
-
-# ############################################################""
-# ### Test
-# ############################################################""
+#############################################################""
+#### Test
+#############################################################""
 
 
 # Traitement des données de test
@@ -224,11 +251,12 @@ X_test[fill_cols] = X_test[fill_cols].fillna(-999)
 X_test_model = X_test.drop(['ID'], axis=1)
 X_test_model = X_test_model[numeric_columns]
 X_test_model = scaler.transform(X_test_model)
+X_test_model = pca.transform(X_test_model)
 
 print("Prédictions sur l'ensemble de validation...")
 # Prédire 'FREQ' et 'CM' sur les données de validation
-y_pred_freq = glm_freq.predict(X_test_model)
-y_pred_cm = glm_cm.predict(X_test_model)
+y_pred_freq = xgb_freq.predict(X_test_model)
+y_pred_cm = xgb_cm.predict(X_test_model)
 print("Prédictions terminées.")
 
 
@@ -246,4 +274,4 @@ y_pred = pd.concat([
 # Calculer la prédiction combinée pour 'CHARGE'
 y_pred['CHARGE'] = y_pred['FREQ'] * y_pred['CM'] * y_pred['ANNEE_ASSURANCE']
 y_pred.to_csv('submission.csv', index=False)
-print("Fichier de soumission créé : 'submission_rff.csv'")
+print("Fichier de soumission créé : 'submission.csv'")
